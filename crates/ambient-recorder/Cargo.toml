@@ -1,0 +1,48 @@
+[package]
+name = "ambient-recorder"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+description = "Native ambient audio capture, Ogg Opus recording, and private service identity"
+
+[dependencies]
+base64 = "0.22"
+anstyle = "1"
+cli-command-kit = { path = "../../../cli-command-kit" }
+cap-std = "4.0.3"
+cap-fs-ext = "4.0.3"
+chrono = { version = "0.4", features = ["serde"] }
+fundu = { version = "2.1.1", default-features = false, features = ["custom"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+libc = "0.2"
+opusenc = { version = "0.3.1", features = ["encoder-options"] }
+plist = "1.10.1"
+regex = "1"
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+rtrb = "0.4.0"
+rubato = "5.0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tempfile = "3"
+toml = "0.9"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tokio-io-timeout = "1.2.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-core-audio = "0.3.2"
+objc2-core-audio-types = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-av-foundation = "0.3.2"
+block2 = "0.6"
+
+[dev-dependencies]
+chrono-tz = "0.10"
+

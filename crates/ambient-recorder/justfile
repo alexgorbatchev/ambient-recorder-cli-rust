@@ -1,0 +1,25 @@
+default:
+    @just --list
+
+native-deps:
+    bash scripts/native-deps.sh
+
+build:
+    bash scripts/cargo.sh build --package ambient-recorder --all-targets
+
+test:
+    bash scripts/cargo.sh test --package ambient-recorder --all-targets
+
+fmt:
+    cargo fmt --package ambient-recorder -- --check
+
+lint:
+    bash scripts/cargo.sh clippy --package ambient-recorder --all-targets -- -D warnings
+
+coverage:
+    bash scripts/cargo.sh llvm-cov --package ambient-recorder --exclude-from-report ambient-recorder-cli --all-targets --fail-under-lines 90
+
+check: fmt lint test coverage
+
+fmt-check:
+    cargo fmt --package ambient-recorder -- --check

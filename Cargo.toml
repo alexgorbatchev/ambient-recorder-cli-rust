@@ -1,0 +1,35 @@
+[package]
+name = "ambient-recorder-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+description = "Record local microphone and system playback with private macOS supervision"
+
+[[bin]]
+name = "ambient-recorder"
+path = "src/main.rs"
+
+[dependencies]
+ambient-recorder = { path = "crates/ambient-recorder" }
+cli-command-kit = { path = "../cli-command-kit" }
+clap_complete = "4.6.11"
+dirs = "6"
+libc = "0.2"
+plist = "1.10.1"
+tabled = { version = "0.20", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "macros"] }
+tokio-util = "0.7"
+
+[dev-dependencies]
+chrono = "0.4"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[workspace]
+members = [".","crates/ambient-recorder"]
+default-members = [".","crates/ambient-recorder"]
+resolver = "3"
