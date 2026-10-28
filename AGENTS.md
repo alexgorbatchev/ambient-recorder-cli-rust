@@ -22,7 +22,7 @@ Development requires Rust 1.98+, Cargo, just, a C compiler, libclang, pkg-config
 
 ## Contracts
 
-- Consult applicable skills before changes. Scope formatting to this package; `cargo fmt --all` follows sibling path dependencies.
+- Consult applicable skills before changes. Scope formatting to this package and its workspace members. External libraries resolve from pinned GitHub revisions.
 - Preserve the source application's offline embedded skill contract. `skills/ambient-recorder/SKILL.md` is the only canonical text; compile it with `include_str!` and print it verbatim in both modes.
 - Update that skill and its metadata with every command, flag, default, environment, output or side-effect change. Keep the live-tree interface test and generated help alerts complete.
 - Parse offline arguments and metadata before resolving paths or configuration. Explicit CLI overrides use Clap value provenance, so parser defaults never overwrite TOML.
