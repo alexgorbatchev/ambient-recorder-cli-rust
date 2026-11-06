@@ -4,31 +4,59 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
 async fn socket_lock_uses_exact_native_path_bytes() {
+    use ambient_recorder::Error;
+    use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
-    let socket = dir
-        .path()
-        .join(std::ffi::OsString::from_vec(b"native-\xff.sock".to_vec()));
-    let mut server = Server::listen(
-        &socket,
-        Info {
-            version: "native".into(),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-    let mut lock = socket.as_os_str().to_os_string();
-    lock.push(".lock");
-    assert!(std::path::Path::new(&lock).exists());
-    assert_eq!(
-        query(&socket, &CancellationToken::new())
-            .await
-            .unwrap()
-            .version,
-        "native"
-    );
-    server.close().await.unwrap();
+    for name in [
+        OsString::from("native-é.sock"),
+        OsString::from_vec(b"native-\xff.sock".to_vec()),
+    ] {
+        let socket = dir.path().join(name);
+        // APFS rejects non-UTF-8 names; determine support with native file creation.
+        let native_error = match fs::write(&socket, b"") {
+            Ok(()) => {
+                fs::remove_file(&socket).unwrap();
+                None
+            }
+            Err(error) => {
+                assert_eq!(error.raw_os_error(), Some(libc::EILSEQ));
+                Some(error)
+            }
+        };
+        let result = Server::listen(
+            &socket,
+            Info {
+                version: "native".into(),
+                ..Default::default()
+            },
+        )
+        .await;
+        if let Some(expected) = native_error {
+            let Err(Error::Io(actual)) = result else {
+                panic!("server must preserve the native filename error");
+            };
+            assert_eq!(actual.raw_os_error(), expected.raw_os_error());
+        } else {
+            let mut server = result.unwrap();
+            let mut lock = socket.as_os_str().to_os_string();
+            lock.push(".lock");
+            assert!(std::path::Path::new(&lock).exists());
+            assert_eq!(
+                query(&socket, &CancellationToken::new())
+                    .await
+                    .unwrap()
+                    .version,
+                "native"
+            );
+            server.close().await.unwrap();
+            assert!(!socket.exists());
+            fs::remove_file(lock).unwrap();
+        }
+        // Rejected names must not leave a replacement-character lock behind.
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+    dir.close().unwrap();
 }
 
 #[tokio::test]
