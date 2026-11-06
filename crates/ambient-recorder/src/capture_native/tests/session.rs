@@ -1,6 +1,6 @@
 use super::*;
 
-fn session(input: Input, host: u64, wall: chrono::DateTime<chrono::Utc>) -> Capture {
+pub(super) fn session(input: Input, host: u64, wall: chrono::DateTime<chrono::Utc>) -> Capture {
     Capture {
         microphone: Device::new(0, "Controlled PCM", "controlled-pcm", false),
         tap: 0,
