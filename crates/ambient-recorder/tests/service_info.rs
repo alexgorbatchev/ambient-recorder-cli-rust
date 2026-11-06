@@ -126,10 +126,17 @@ async fn native_unix_http_identity_is_private_exclusive_and_snapshot_owned() {
 async fn native_client_rejects_invalid_oversized_and_delayed_responses_and_cancels() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let dir = tempfile::tempdir().unwrap();
-    for body in [
-        "{}".to_string(),
-        "not json".to_string(),
-        format!("{{\"version\":\"{}\"}}", "x".repeat(4096)),
+    for (status, body) in [
+        ("200 OK", "{}".to_string()),
+        ("200 OK", "not json".to_string()),
+        (
+            "200 OK",
+            format!("{{\"version\":\"{}\"}}", "x".repeat(4096)),
+        ),
+        (
+            "503 Service Unavailable",
+            "{\"version\":\"unhealthy\"}".to_string(),
+        ),
     ] {
         let path = dir.path().join("fixture.sock");
         let listener = tokio::net::UnixListener::bind(&path).unwrap();
@@ -138,12 +145,19 @@ async fn native_client_rejects_invalid_oversized_and_delayed_responses_and_cance
             let mut buf = [0; 4096];
             assert!(stream.read(&mut buf).await.unwrap() > 0);
             let reply = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             stream.write_all(reply.as_bytes()).await.unwrap();
         });
-        assert!(query(&path, &CancellationToken::new()).await.is_err());
+        let result = query(&path, &CancellationToken::new()).await;
+        if status.starts_with("503") {
+            assert!(
+                matches!(result, Err(ambient_recorder::Error::Invalid(message)) if message.contains("response status"))
+            );
+        } else {
+            assert!(result.is_err());
+        }
         task.await.unwrap();
         fs::remove_file(path).unwrap();
     }
@@ -162,4 +176,61 @@ async fn native_client_rejects_invalid_oversized_and_delayed_responses_and_cance
         Err(ambient_recorder::Error::Cancelled)
     ));
     task.await.unwrap();
+}
+
+#[tokio::test]
+async fn http_methods_and_shutdown_preserve_protocol_and_replacement_socket() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("identity.sock");
+    let mut server = Server::listen(
+        &socket,
+        Info {
+            version: "method-test".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let client = reqwest::Client::builder()
+        .unix_socket(socket.clone())
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap();
+    let get = client.get("http://service/version").send().await.unwrap();
+    assert_eq!(get.status(), reqwest::StatusCode::OK);
+    let length = get.headers()["content-length"].clone();
+    let body = get.bytes().await.unwrap();
+    assert_eq!(
+        length.to_str().unwrap().parse::<usize>().unwrap(),
+        body.len()
+    );
+    assert_eq!(
+        serde_json::from_slice::<Info>(&body).unwrap().version,
+        "method-test"
+    );
+    let head = client.head("http://service/version").send().await.unwrap();
+    assert_eq!(head.status(), reqwest::StatusCode::OK);
+    assert_eq!(head.headers()["content-length"], length);
+    assert_eq!(head.headers()["content-type"], "application/json");
+    assert!(head.bytes().await.unwrap().is_empty());
+    let post = client.post("http://service/version").send().await.unwrap();
+    assert_eq!(post.status(), reqwest::StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(post.headers()["allow"], "GET, HEAD");
+    assert!(post.bytes().await.unwrap().is_empty());
+    let missing = client.get("http://service/missing").send().await.unwrap();
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+    assert!(missing.bytes().await.unwrap().is_empty());
+    drop(client);
+
+    fs::rename(&socket, root.path().join("old.sock")).unwrap();
+    let replacement = tokio::net::UnixListener::bind(&socket).unwrap();
+    server.close().await.unwrap();
+    let connection = tokio::net::UnixStream::connect(&socket).await.unwrap();
+    let accepted = tokio::time::timeout(std::time::Duration::from_secs(2), replacement.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    drop((connection, accepted, replacement));
+    root.close().unwrap();
 }

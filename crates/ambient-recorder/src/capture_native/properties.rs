@@ -8,6 +8,10 @@ use std::{
     ptr::{self, NonNull},
 };
 
+#[cfg(test)]
+#[path = "tests/properties.rs"]
+mod tests;
+
 pub(super) fn status(code: i32, operation: &str) -> Result<()> {
     if code == 0 {
         Ok(())

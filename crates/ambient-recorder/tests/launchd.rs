@@ -297,6 +297,52 @@ fn user_agent_resolves_binary_without_installing_a_service() -> Result<()> {
 }
 
 #[tokio::test]
+async fn refresh_repairs_missing_environment_and_start_reuses_a_loaded_job() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let agent = fixture(root.path());
+    let token = CancellationToken::new();
+    assert!(
+        matches!(agent.refresh(&token).await, Err(Error::Invalid(message)) if message.contains("not installed"))
+    );
+    assert!(!agent.plist.exists());
+    agent.install(&settings(root.path()), &token).await?;
+    let mut value = plist::Value::from_file(&agent.plist)?;
+    value
+        .as_dictionary_mut()
+        .unwrap()
+        .remove("EnvironmentVariables");
+    value.to_file_xml(&agent.plist)?;
+    assert!(agent.refresh(&token).await?);
+    let repaired = plist::Value::from_file(&agent.plist)?;
+    let fields = repaired.as_dictionary().unwrap();
+    let environment = fields["EnvironmentVariables"].as_dictionary().unwrap();
+    assert_eq!(
+        environment[ambient_recorder::service_info::ENVIRONMENT].as_string(),
+        socket_path(&agent.plist).to_str()
+    );
+    let repaired_bytes = fs::read(&agent.plist)?;
+    assert!(!agent.refresh(&token).await?);
+    assert_eq!(fs::read(&agent.plist)?, repaired_bytes);
+    fs::write(root.path().join("calls"), b"")?;
+    agent.manage(Action::Start, &token).await?;
+    let calls = fs::read_to_string(root.path().join("calls"))?;
+    assert_eq!(
+        calls.lines().collect::<Vec<_>>(),
+        [
+            "enable gui/501/test.ambient",
+            "print gui/501/test.ambient",
+            "kickstart gui/501/test.ambient",
+        ]
+    );
+    agent.manage(Action::Uninstall, &token).await?;
+    agent.manage(Action::Uninstall, &token).await?;
+    assert!(!agent.plist.exists());
+    assert!(!root.path().join("loaded").exists());
+    root.close()?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn status_rejects_malformed_saved_arguments_before_calling_the_resolver() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let agent = fixture(temp.path());

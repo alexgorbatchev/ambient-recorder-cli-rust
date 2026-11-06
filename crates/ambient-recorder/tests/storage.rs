@@ -79,3 +79,52 @@ fn logs_append_and_queries_cannot_block_on_fifo() {
     assert!(current_file(dir.path()).is_err());
     assert!(Store::open("").is_err());
 }
+
+#[test]
+fn current_pointer_rejects_foreign_and_replaced_segments_without_losing_its_owner() {
+    use ambient_recorder::Error;
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("audio");
+    let store = Store::open(&output).unwrap();
+    let at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let active = store.create_segment(at).unwrap();
+    store.mark_current(&active).unwrap();
+    let pointer = output.join(".recording.current");
+    let other = Store::open(root.path().join("other")).unwrap();
+    let foreign = other.create_segment(at).unwrap();
+    assert!(matches!(
+        store.mark_current(&foreign),
+        Err(Error::Invalid(_))
+    ));
+    assert_eq!(fs::read_link(&pointer).unwrap(), active.relative);
+
+    let mut replaced = store.create_segment(at).unwrap();
+    let reserved = output.join(&replaced.relative);
+    fs::rename(&reserved, reserved.with_extension("saved")).unwrap();
+    fs::write(&reserved, b"replacement belongs to another writer").unwrap();
+    assert!(matches!(
+        store.mark_current(&replaced),
+        Err(Error::Invalid(_))
+    ));
+    assert_eq!(fs::read_link(&pointer).unwrap(), active.relative);
+    assert_eq!(
+        fs::read(&reserved).unwrap(),
+        b"replacement belongs to another writer"
+    );
+    assert!(replaced.file.try_lock().is_ok());
+    replaced.file.unlock().unwrap();
+    replaced.relative = "../outside".into();
+    assert!(matches!(
+        store.mark_current(&replaced),
+        Err(Error::Invalid(_))
+    ));
+    assert_eq!(
+        current_file(&output).unwrap(),
+        output.join(&active.relative)
+    );
+
+    store.clear_current().unwrap();
+    fs::write(&pointer, b"foreign regular file").unwrap();
+    assert!(matches!(current_file(&output), Err(Error::Io(_))));
+    assert_eq!(fs::read(&pointer).unwrap(), b"foreign regular file");
+}
