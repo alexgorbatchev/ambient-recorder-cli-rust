@@ -264,3 +264,34 @@ async fn live_partial_identity_retains_saved_paths_and_descendant_output_has_a_d
     assert!(began.elapsed() < Duration::from_secs(3));
     Ok(())
 }
+
+#[test]
+fn user_agent_resolves_binary_without_installing_a_service() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let binary = root.path().join("recorder");
+    fs::write(&binary, b"fixture")?;
+    let alias = root.path().join("recorder-link");
+    symlink(&binary, &alias)?;
+    let home = root.path().join("home");
+    // SAFETY: getuid observes the process identity and has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let agent = Agent::user(&home, &alias);
+    if uid == 0 {
+        assert!(matches!(agent, Err(Error::Invalid(message)) if message.contains("without sudo")));
+    } else {
+        let agent = agent?;
+        assert_eq!(agent.binary, fs::canonicalize(&binary)?);
+        assert_eq!(agent.domain, format!("gui/{uid}"));
+        assert_eq!(
+            agent.plist.parent().unwrap(),
+            home.join("Library/LaunchAgents")
+        );
+        assert!(!agent.installed()?);
+        fs::remove_file(&binary)?;
+        assert!(
+            matches!(Agent::user(&home, &alias), Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)
+        );
+    }
+    assert!(!home.exists());
+    Ok(())
+}
