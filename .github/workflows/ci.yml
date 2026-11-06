@@ -43,7 +43,8 @@ jobs:
           persist-credentials: false
 
       - name: Restore Rust toolchain
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        id: rustup
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.rustup/toolchains/1.98.1-${{ matrix.host }}
           key: rustup-${{ runner.os }}-${{ runner.arch }}-1.98.1-clippy-rustfmt-llvm-v1
@@ -54,10 +55,18 @@ jobs:
           toolchain: 1.98.1
           components: clippy, rustfmt, llvm-tools-preview
 
+      - name: Save prepared Rust toolchain
+        if: steps.rustup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ~/.rustup/toolchains/1.98.1-${{ matrix.host }}
+          key: ${{ steps.rustup.outputs.cache-primary-key }}
+
       - name: Restore Cargo dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: ${{ matrix.os }}-llvm-cov-0.9.1-just-1.59.0-${{ hashFiles('crates/ambient-recorder/scripts/*.sh') }}
+          cache-on-failure: true
 
       - name: Install check tools
         uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
@@ -81,7 +90,7 @@ jobs:
 
       - name: Restore native codecs
         id: codecs
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: crates/ambient-recorder/.cache/native
           key: codecs-${{ matrix.os }}-${{ runner.arch }}-${{ hashFiles('crates/ambient-recorder/scripts/native-deps.sh') }}
@@ -89,6 +98,13 @@ jobs:
       - name: Build native codecs
         if: steps.codecs.outputs.cache-hit != 'true'
         run: just native-deps
+
+      - name: Save prepared native codecs
+        if: steps.codecs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: crates/ambient-recorder/.cache/native
+          key: ${{ steps.codecs.outputs.cache-primary-key }}
 
       - name: Fetch locked dependencies
         run: cargo fetch --locked
