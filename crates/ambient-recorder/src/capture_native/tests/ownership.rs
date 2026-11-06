@@ -73,6 +73,37 @@ fn missing_microphone_initialization_releases_partial_native_resources_without_s
     );
     assert!(capture.io.is_none());
     assert!(!capture.running);
+
+    // The partial aggregate still owns its inactive tap stream. Negotiate its
+    // actual format without connecting a microphone or starting audio delivery.
+    let channels = properties::input_channels(capture.aggregate_id()).unwrap();
+    assert!(channels > 0);
+    let streams = properties::configure(capture.aggregate_id(), channels, capture.rate).unwrap();
+    assert!(!streams.is_empty());
+    let mut configured_channels = 0;
+    for stream in streams {
+        let format: AudioStreamBasicDescription = scalar(
+            stream,
+            kAudioStreamPropertyVirtualFormat,
+            kAudioObjectPropertyScopeGlobal,
+        )
+        .unwrap();
+        assert_eq!(format.mFormatID, kAudioFormatLinearPCM);
+        assert_ne!(format.mFormatFlags & kAudioFormatFlagIsFloat, 0);
+        assert_eq!(format.mBitsPerChannel, 32);
+        assert_eq!(format.mFramesPerPacket, 1);
+        assert_eq!(format.mBytesPerPacket, format.mBytesPerFrame);
+        configured_channels += format.mChannelsPerFrame as usize;
+    }
+    assert_eq!(configured_channels, channels);
+    assert!(matches!(
+        properties::configure(capture.aggregate_id(), channels + 1, capture.rate),
+        Err(Error::Invalid(message)) if message.contains("channel count differs")
+    ));
+    assert_eq!(
+        properties::describe(capture.aggregate_id(), 0).id,
+        capture.aggregate_id()
+    );
     capture.close().unwrap();
     assert_eq!(capture.tap, 0);
     assert_eq!(capture.aggregate_id(), 0);
