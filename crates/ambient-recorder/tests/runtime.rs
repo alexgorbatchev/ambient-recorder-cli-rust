@@ -220,3 +220,56 @@ fn watchdog_is_independent_of_a_blocked_diagnostic_and_stops_promptly() {
     watchdog.stop();
     assert!(start.elapsed() < Duration::from_millis(100));
 }
+
+#[tokio::test]
+async fn native_watchdog_emits_diagnostic_and_exits_for_supervisor_restart() {
+    if std::env::var_os("AMBIENT_WATCHDOG_CHILD").is_some() {
+        let _watchdog = Watchdog::native(Duration::from_millis(100));
+        std::future::pending::<()>().await;
+        unreachable!();
+    }
+    // The parent owns the diagnostic file; process::exit in the child cannot
+    // strand fixture directories or require a pipe reader to finish cleanup.
+    let mut diagnostic = tempfile::tempfile().unwrap();
+    let mut child = tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "native_watchdog_emits_diagnostic_and_exits_for_supervisor_restart",
+            "--nocapture",
+        ])
+        .env("AMBIENT_WATCHDOG_CHILD", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(diagnostic.try_clone().unwrap())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+    if result.is_err() {
+        if let Some(pid) = child.id() {
+            // SAFETY: this PID belongs to our still-owned, unreaped child.
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+        }
+        if tokio::time::timeout(Duration::from_secs(1), child.wait())
+            .await
+            .is_err()
+        {
+            child.kill().await.unwrap();
+            child.wait().await.unwrap();
+        }
+    }
+    assert_eq!(
+        result.expect("watchdog did not exit").unwrap().code(),
+        Some(2)
+    );
+    use std::io::{Read, Seek};
+    diagnostic.rewind().unwrap();
+    let mut output = String::new();
+    diagnostic.read_to_string(&mut output).unwrap();
+    assert_eq!(
+        output,
+        "ERR: Recorder blocked for 100ms; exiting for supervisor restart\n"
+    );
+}

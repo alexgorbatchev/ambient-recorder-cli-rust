@@ -83,4 +83,74 @@ fn daylight_saving_repeated_hour_and_large_frame_duration_keep_acquired_boundari
         chrono::Duration::days(365)
     );
     assert!(ambient_recorder::recording::frame_duration(1, 0).is_err());
+    let max_seconds = chrono::Duration::MAX.num_seconds() as u64;
+    assert_eq!(
+        ambient_recorder::recording::frame_duration(max_seconds, 1).unwrap(),
+        chrono::Duration::seconds(max_seconds as i64)
+    );
+    for frames in [max_seconds + 1, u64::MAX] {
+        assert!(matches!(
+            ambient_recorder::recording::frame_duration(frames, 1),
+            Err(ambient_recorder::Error::Invalid(message)) if message == "frame duration overflow"
+        ));
+    }
+}
+
+#[test]
+fn pointer_failures_preserve_foreign_entries_and_still_finalize_owned_audio() {
+    use ambient_recorder::{Error, recording::Event};
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path()).unwrap());
+    assert!(matches!(
+        Sink::new(
+            store.clone(),
+            EncoderConfig {
+                sample_rate: 44_100,
+                ..Default::default()
+            }
+        ),
+        Err(Error::Invalid(_))
+    ));
+    let pointer = dir.path().join(".recording.current");
+    std::fs::create_dir(&pointer).unwrap();
+    std::fs::write(pointer.join("keep"), "foreign entry").unwrap();
+    let mut sink = Sink::new(store.clone(), EncoderConfig::default()).unwrap();
+    let at = chrono::Utc
+        .with_ymd_and_hms(2026, 10, 14, 12, 0, 0)
+        .unwrap();
+    assert!(
+        matches!(sink.write(at, &[0.1; 480]), Err(Error::Multiple(errors)) if !errors.is_empty())
+    );
+    assert!(sink.events().is_empty());
+    assert_eq!(
+        std::fs::read_to_string(pointer.join("keep")).unwrap(),
+        "foreign entry"
+    );
+    let failed = dir.path().join("2026/10/14/12-00-00.000000000.opus");
+    let reservation = std::fs::File::open(failed).unwrap();
+    reservation.try_lock().unwrap();
+    drop(reservation);
+    std::fs::remove_file(pointer.join("keep")).unwrap();
+    std::fs::remove_dir(&pointer).unwrap();
+
+    sink.write(at + chrono::Duration::seconds(1), &[0.1; 480])
+        .unwrap();
+    let path = current_file(dir.path()).unwrap();
+    std::fs::remove_file(&pointer).unwrap();
+    std::fs::create_dir(&pointer).unwrap();
+    std::fs::write(pointer.join("keep"), "foreign entry").unwrap();
+    let error = sink.close().unwrap_err();
+    assert!(matches!(error, Error::Multiple(ref errors) if !errors.is_empty()));
+    assert!(
+        matches!(sink.events().last(), Some(Event::Closed { frames: 480, error: Some(message), .. }) if !message.is_empty())
+    );
+    assert_eq!(decoded_frames(&path), 480);
+    let finalized = std::fs::File::open(path).unwrap();
+    finalized.try_lock().unwrap();
+    sink.close().unwrap();
+    assert!(sink.events().is_empty());
+    assert_eq!(
+        std::fs::read_to_string(pointer.join("keep")).unwrap(),
+        "foreign entry"
+    );
 }

@@ -111,3 +111,74 @@ fn interrupted_log_tail_is_preserved_exactly_or_safely_rejected() {
         }
     }
 }
+
+#[test]
+fn log_recovery_preserves_complete_prefix_and_utf8_partial_tail() {
+    for partial in ["", "unfinished diagnostic é"] {
+        let dir = tempfile::tempdir().unwrap();
+        let day = dir.path().join("2026/10/14");
+        std::fs::create_dir_all(&day).unwrap();
+        let path = day.join("log.nljson");
+        let prefix = "{\"msg\":\"complete\"}\n";
+        std::fs::write(&path, format!("{prefix}{partial}")).unwrap();
+        let mut journal = Journal::new(
+            Arc::new(Store::open(dir.path()).unwrap()),
+            None,
+            false,
+            false,
+        );
+        journal.event(record(Level::Info, "next")).unwrap();
+        journal.close().unwrap();
+        let output = std::fs::read_to_string(&path).unwrap();
+        assert!(output.starts_with(prefix));
+        let lines: Vec<serde_json::Value> = output
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), if partial.is_empty() { 2 } else { 3 });
+        if !partial.is_empty() {
+            assert_eq!(lines[1]["partial_tail"], partial);
+            assert_eq!(lines[1]["level"], "WARN");
+        }
+        assert_eq!(lines.last().unwrap()["msg"], "next");
+    }
+}
+
+#[test]
+fn invalid_fields_are_rejected_and_colored_failure_diagnostics_preserve_control_bytes() {
+    for fields in [
+        json!([]),
+        json!({"time": "forged"}),
+        json!({"level": "forged"}),
+        json!({"msg": "forged"}),
+    ] {
+        assert!(Record::now(Level::Info, "actual", fields).is_err());
+    }
+    for (level, tag) in [
+        (Level::Debug, "DBG"),
+        (Level::Info, "INF"),
+        (Level::Warn, "WRN"),
+        (Level::Error, "ERR"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        // A file blocks creation of the daily directory, exercising the actual
+        // persistence error while the console remains available.
+        std::fs::write(dir.path().join("2026"), "preserved").unwrap();
+        let writer = Writer::default();
+        let mut journal = Journal::new(store, Some(Box::new(writer.clone())), false, true);
+        assert!(journal.event(record(level, "failure\nforged")).is_err());
+        journal.close().unwrap();
+        let output = String::from_utf8(writer.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(output.lines().count(), 1);
+        assert!(output.contains(tag));
+        assert!(output.contains("\u{1b}["));
+        assert!(output.contains("failure\\nforged"));
+        assert!(!output.contains("\u{1b}[2J"));
+        assert!(output.contains("log_error="));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("2026")).unwrap(),
+            "preserved"
+        );
+    }
+}

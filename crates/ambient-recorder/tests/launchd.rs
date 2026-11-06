@@ -295,3 +295,58 @@ fn user_agent_resolves_binary_without_installing_a_service() -> Result<()> {
     assert!(!home.exists());
     Ok(())
 }
+
+#[tokio::test]
+async fn status_rejects_malformed_saved_arguments_before_calling_the_resolver() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let agent = fixture(temp.path());
+    let token = CancellationToken::new();
+    let calls = std::cell::Cell::new(0);
+    let resolve = |args: &[String]| {
+        calls.set(calls.get() + 1);
+        assert_eq!(args, ["recorder", "recording", "start"]);
+        Ok((
+            temp.path().join("output"),
+            temp.path().join("settings.toml"),
+        ))
+    };
+    let missing = plist::Dictionary::new();
+    let mut wrong_type = missing.clone();
+    wrong_type.insert("ProgramArguments".into(), "not an array".into());
+    let mut wrong_element = missing.clone();
+    wrong_element.insert(
+        "ProgramArguments".into(),
+        plist::Value::Array(vec![42.into()]),
+    );
+    for fields in [missing, wrong_type, wrong_element] {
+        plist::Value::Dictionary(fields).to_file_xml(&agent.plist)?;
+        let original = fs::read(&agent.plist)?;
+        let status = agent.status(&token, &resolve).await?;
+        assert!(status.installed);
+        assert!(!status.loaded);
+        assert_eq!(status.paths.source, "unavailable");
+        assert_eq!(calls.get(), 0);
+        assert_eq!(fs::read(&agent.plist)?, original);
+    }
+    let mut valid = plist::Dictionary::new();
+    valid.insert(
+        "ProgramArguments".into(),
+        plist::Value::Array(["recorder", "recording", "start"].map(Into::into).into()),
+    );
+    plist::Value::Dictionary(valid).to_file_xml(&agent.plist)?;
+    let status = agent.status(&token, &resolve).await?;
+    assert_eq!(calls.get(), 1);
+    assert_eq!(status.paths.source, "saved");
+    assert_eq!(
+        status.paths.output,
+        temp.path().join("output").display().to_string()
+    );
+    assert!(!temp.path().join("output").exists());
+    let commands = fs::read_to_string(temp.path().join("calls"))?;
+    assert!(
+        commands
+            .lines()
+            .all(|line| line == "print gui/501/test.ambient")
+    );
+    Ok(())
+}
