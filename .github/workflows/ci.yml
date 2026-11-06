@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.name }} checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+            host: x86_64-unknown-linux-gnu
+            ffmpeg: '9.0'
+          - name: macOS
+            os: macos-15
+            host: aarch64-apple-darwin
+            ffmpeg: '902'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      MACOSX_DEPLOYMENT_TARGET: '14.2'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Restore Rust toolchain
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ~/.rustup/toolchains/1.98.1-${{ matrix.host }}
+          key: rustup-${{ runner.os }}-${{ runner.arch }}-1.98.1-clippy-rustfmt-llvm-v1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.98.1
+          components: clippy, rustfmt, llvm-tools-preview
+
+      - name: Restore Cargo dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: ${{ matrix.os }}-llvm-cov-0.9.1-just-1.59.0-${{ hashFiles('crates/ambient-recorder/scripts/*.sh') }}
+
+      - name: Install check tools
+        uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
+        with:
+          tool: just@1.59.0,cargo-llvm-cov@0.9.1
+          fallback: none
+
+      - name: Install FFmpeg and ffprobe
+        uses: AnimMouse/setup-ffmpeg@178e0b4a408f06ce40d896c3cd79f50fa6f8b0c3 # v1
+        with:
+          version: ${{ matrix.ffmpeg }}
+
+      - name: Locate libclang
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            echo "LIBCLANG_PATH=$(brew --prefix llvm@18)/lib" >> "$GITHUB_ENV"
+          else
+            echo 'LIBCLANG_PATH=/usr/lib/llvm-18/lib' >> "$GITHUB_ENV"
+          fi
+
+      - name: Restore native codecs
+        id: codecs
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: crates/ambient-recorder/.cache/native
+          key: codecs-${{ matrix.os }}-${{ runner.arch }}-${{ hashFiles('crates/ambient-recorder/scripts/native-deps.sh') }}
+
+      - name: Build native codecs
+        if: steps.codecs.outputs.cache-hit != 'true'
+        run: just native-deps
+
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+
+      - name: Run validation gates
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          test ! -e .tmp
+          test ! -e crates/ambient-recorder/.tmp
+          just check
+          bash scripts/cargo.sh test --doc --workspace --locked
+          git diff --exit-code -- Cargo.lock
