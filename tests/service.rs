@@ -228,6 +228,22 @@ async fn live_status_overrides_saved_parser_and_details_render_in_both_modes() -
     )
     .await?;
     assert!(String::from_utf8_lossy(&out).contains("paths_source=\"unavailable\""));
+    // Cancellation must stop status before invoking even the local subprocess.
+    let calls = fs::read(temp.path().join("calls"))?;
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert!(matches!(
+        app.execute(
+            ["ambient-recorder", "service", "status"],
+            &mut Vec::new(),
+            None,
+            &cancelled,
+            &mut Native
+        )
+        .await,
+        Err(Error::Cancelled)
+    ));
+    assert_eq!(fs::read(temp.path().join("calls"))?, calls);
     // The normal preview path obtains the real user ID without contacting launchd.
     app.service = None;
     out.clear();
@@ -240,16 +256,5 @@ async fn live_status_overrides_saved_parser_and_details_render_in_both_modes() -
     )
     .await?;
     assert!(plist::Value::from_reader_xml(&out[..]).is_ok());
-    assert!(matches!(
-        app.execute(
-            ["ambient-recorder", "service", "status"],
-            &mut Vec::new(),
-            None,
-            &token,
-            &mut Native
-        )
-        .await,
-        Err(Error::UnsupportedPlatform) | Err(Error::Invalid(_)) | Err(Error::Io(_))
-    ));
     Ok(())
 }
