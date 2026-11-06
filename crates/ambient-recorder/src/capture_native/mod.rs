@@ -1,4 +1,6 @@
 mod properties;
+#[cfg(test)]
+mod tests;
 use super::{
     Acquired, Backend, Buffer, Clock, MAX_FRAMES, MAX_STREAMS, Mixer, Monitor, Reader, Session,
     Timestamp, queue,
