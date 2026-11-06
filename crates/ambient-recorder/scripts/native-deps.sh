@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
-native_dir="$project_dir/.tmp/native"
+native_dir="$project_dir/.cache/native"
 mkdir -p "$native_dir"
 build_component() {
   local component="$1" version="$2" checksum="$3"

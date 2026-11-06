@@ -1,6 +1,6 @@
 ---
 created_on: 2026-10-14 18:31
-last_modified: 2026-10-14 22:40
+last_modified: 2026-11-06 04:03
 status: current
 ---
 
@@ -10,7 +10,7 @@ Native capture, acquired-time recording, private storage, and per-user service p
 
 ## Commands
 
-- Native codec setup: `just native-deps` builds checksum-verified static Opus/libopusenc under `.tmp/native`.
+- Native codec setup: `just native-deps` builds checksum-verified static Opus/libopusenc under `.cache/native` and retains archives and build trees for reuse.
 - Build: `just build`.
 - Tests: `just test` (requires FFmpeg and ffprobe for real codec fixtures).
 - Format: `cargo fmt --package ambient-recorder`.
@@ -28,8 +28,8 @@ Native capture, acquired-time recording, private storage, and per-user service p
 
 ## Verification and boundaries
 
-- Runtime-result changes require corresponding test-file changes and at least 90% line coverage; `scripts/` is excluded. Use red/green and genuine behavior-disable/restoration proofs.
+- Apply the root's behavioral-test and per-package line/function coverage rules. `just coverage` reports this package separately and currently enforces only 90% line coverage. Use red/green and genuine behavior-disable/restoration proofs.
 - Keep controlled audio and subprocess fixtures separate from opt-in native capture. Never capture user audio or install/start persistent services as a build or test side effect.
 - Darwin cross-checks do not prove macOS linking, permission flows, capture quality, or launchd execution. Report native runtime limitations explicitly.
-- Keep generated native dependencies, evidence, and temporary files under `.tmp/`. Preserve native license notices when distributing linked artifacts.
+- Keep reusable native dependencies under `.cache/native`, retained evidence in ignored `.state`, and disposable development scratch in `.tmp`. Tests use system temporary directories and remove their owned fixtures. Preserve native license notices when distributing linked artifacts.
 - Rust artifacts are unpublished. Never publish releases, tags, packages, or deployments without explicit authorization.

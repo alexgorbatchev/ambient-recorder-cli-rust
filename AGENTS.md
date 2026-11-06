@@ -1,6 +1,6 @@
 ---
 created_on: 2026-10-14 19:05
-last_modified: 2026-10-14 22:40
+last_modified: 2026-11-06 04:03
 status: current
 ---
 
@@ -18,7 +18,7 @@ This repository contains the Rust CLI and its internal `crates/ambient-recorder`
 - Format check: `just fmt`.
 - Complete gate: `just check`.
 
-Development requires Rust 1.98+, Cargo, just, a C compiler, libclang, pkg-config and make. Coverage requires cargo-llvm-cov and LLVM tools. Native codec preparation downloads checksum-verified Opus/libopusenc into `crates/ambient-recorder/.tmp/native`. Tests supply controlled PCM and local service subprocesses; they require no microphone access. Rust artifacts are unpublished.
+Development requires Rust 1.98+, Cargo, just, a C compiler, libclang, pkg-config and make. Coverage requires cargo-llvm-cov and LLVM tools. Native codec preparation downloads checksum-verified Opus/libopusenc into `crates/ambient-recorder/.cache/native`. Tests supply controlled PCM and local service subprocesses; they require no microphone access. Preserve system temporary-directory defaults through Cargo wrappers so socket fixtures work from long checkout paths. Rust artifacts are unpublished.
 
 ## Contracts
 
@@ -33,7 +33,8 @@ Development requires Rust 1.98+, Cargo, just, a C compiler, libclang, pkg-config
 
 ## Boundaries
 
-- Any code change affecting runtime results requires a corresponding test-file change and at least 90% line coverage; `scripts/` is excluded. Record red/green and genuine temporary-disable/restoration evidence under `.tmp`.
+- Any code change affecting runtime results requires meaningful behavioral tests and at least 90% line and function coverage across each affected first-party package's non-test source, including unexecuted files; `scripts/` is excluded. `just coverage` and the internal package's coverage recipe currently enforce only the line threshold. Track missing enforcement separately during instruction maintenance; do not waive existing gates. Keep disposable red/green evidence in `.tmp` and retained reports in ignored `.state`.
+- Before running a check, compare its source, test, fixture, configuration, toolchain and embedded-document inputs with the changed files. Skip unchanged-input checks and report why; run checks whose inputs changed or are uncertain. Never bypass hooks, CI or required gates.
 - Use controlled audio and local process/socket fixtures by default. Live microphone capture and changes to the user's login service require explicit authorization.
 - Never publish releases, tags, packages or production deployments without explicit user authorization.
 - Persist standing rules in place; keep progress, test outcomes and handoffs outside this file.
