@@ -27,7 +27,7 @@ _fmt:
 # Report this CLI package separately from its internal crate.
 coverage:
     mkdir -p .tmp
-    bash scripts/cargo.sh llvm-cov --package ambient-recorder-cli --exclude-from-report ambient-recorder --all-targets --fail-under-lines 90 --json --output-path .tmp/coverage-final.json
+    bash scripts/cargo.sh llvm-cov --package ambient-recorder-cli --exclude-from-report ambient-recorder --all-targets --fail-under-lines 90 --fail-under-functions 90 --json --output-path .tmp/coverage-final.json
 
 check: _fmt _lint _test coverage
     just ambient_recorder check

@@ -17,7 +17,7 @@ lint:
     bash scripts/cargo.sh clippy --package ambient-recorder --all-targets -- -D warnings
 
 coverage:
-    bash scripts/cargo.sh llvm-cov --package ambient-recorder --exclude-from-report ambient-recorder-cli --all-targets --fail-under-lines 90 --show-missing-lines
+    bash scripts/cargo.sh llvm-cov --package ambient-recorder --exclude-from-report ambient-recorder-cli --all-targets --fail-under-lines 90 --fail-under-functions 90 --show-missing-lines
 
 check: fmt lint test coverage
 

@@ -1,6 +1,6 @@
 ---
 created_on: 2026-10-14 18:31
-last_modified: 2026-11-06 04:03
+last_modified: 2026-11-06 05:36
 status: current
 ---
 
@@ -28,7 +28,7 @@ Native capture, acquired-time recording, private storage, and per-user service p
 
 ## Verification and boundaries
 
-- Apply the root's behavioral-test and per-package line/function coverage rules. `just coverage` reports this package separately and currently enforces only 90% line coverage. Use red/green and genuine behavior-disable/restoration proofs.
+- Apply the root's behavioral-test and per-package line/function coverage rules. `just coverage` reports this package separately and enforces 90% line and function coverage. Use red/green and genuine behavior-disable/restoration proofs.
 - Keep controlled audio and subprocess fixtures separate from opt-in native capture. Never capture user audio or install/start persistent services as a build or test side effect.
 - Darwin cross-checks do not prove macOS linking, permission flows, capture quality, or launchd execution. Report native runtime limitations explicitly.
 - Keep reusable native dependencies under `.cache/native`, retained evidence in ignored `.state`, and disposable development scratch in `.tmp`. Tests use system temporary directories and remove their owned fixtures. Preserve native license notices when distributing linked artifacts.

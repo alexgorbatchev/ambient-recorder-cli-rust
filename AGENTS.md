@@ -1,6 +1,6 @@
 ---
 created_on: 2026-10-14 19:05
-last_modified: 2026-11-06 04:03
+last_modified: 2026-11-06 05:36
 status: current
 ---
 
@@ -33,7 +33,7 @@ Development requires Rust 1.98+, Cargo, just, a C compiler, libclang, pkg-config
 
 ## Boundaries
 
-- Any code change affecting runtime results requires meaningful behavioral tests and at least 90% line and function coverage across each affected first-party package's non-test source, including unexecuted files; `scripts/` is excluded. `just coverage` and the internal package's coverage recipe currently enforce only the line threshold. Track missing enforcement separately during instruction maintenance; do not waive existing gates. Keep disposable red/green evidence in `.tmp` and retained reports in ignored `.state`.
+- Any code change affecting runtime results requires meaningful behavioral tests and at least 90% line and function coverage across each affected first-party package's non-test source, including unexecuted files; `scripts/` is excluded. `just coverage` and the internal package's coverage recipe enforce both thresholds. Do not waive existing gates. Keep disposable red/green evidence in `.tmp` and retained reports in ignored `.state`.
 - Before running a check, compare its source, test, fixture, configuration, toolchain and embedded-document inputs with the changed files. Skip unchanged-input checks and report why; run checks whose inputs changed or are uncertain. Never bypass hooks, CI or required gates.
 - Use controlled audio and local process/socket fixtures by default. Live microphone capture and changes to the user's login service require explicit authorization.
 - Never publish releases, tags, packages or production deployments without explicit user authorization.
