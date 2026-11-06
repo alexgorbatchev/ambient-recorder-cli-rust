@@ -1,5 +1,8 @@
-use ambient_recorder::audio::{Encoder, EncoderConfig, Resampler};
-use std::{f32::consts::TAU, process::Command};
+use ambient_recorder::{
+    Error,
+    audio::{Encoder, EncoderConfig, Resampler},
+};
+use std::{cell::Cell, f32::consts::TAU, io, process::Command};
 
 #[test]
 fn streaming_fft_conversion_preserves_duration_and_waveform_across_rates() {
@@ -9,6 +12,7 @@ fn streaming_fft_conversion_preserves_duration_and_waveform_across_rates() {
             .collect();
         for block in [137, 8192] {
             let mut resampler = Resampler::new(rate as f64).unwrap();
+            assert_eq!(resampler.sample_rate(), rate as f64);
             let mut output = Vec::new();
             for chunk in input.chunks(block) {
                 output.extend(resampler.push(chunk).unwrap());
@@ -31,6 +35,68 @@ fn streaming_fft_conversion_preserves_duration_and_waveform_across_rates() {
     }
     for rate in [0., -1., f64::NAN, f64::INFINITY, 192001.] {
         assert!(Resampler::new(rate).is_err());
+    }
+}
+
+#[derive(Default)]
+struct FailingOutput {
+    bytes: Vec<u8>,
+    fail_write: Cell<bool>,
+    fail_flush: Cell<bool>,
+    writes: usize,
+    flushes: usize,
+}
+
+impl io::Write for FailingOutput {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.writes += 1;
+        if self.fail_write.get() {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "output closed"));
+        }
+        // Force write_all to preserve every byte across partial writes.
+        let count = bytes.len().min(7);
+        self.bytes.extend_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.flushes += 1;
+        if self.fail_flush.get() {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "flush failed"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[test]
+fn encoder_propagates_header_and_finish_errors_and_cannot_resume_failed_streams() {
+    let output = FailingOutput {
+        fail_write: Cell::new(true),
+        ..Default::default()
+    };
+    assert!(matches!(
+        Encoder::new(output, EncoderConfig::default()),
+        Err(Error::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
+    ));
+
+    for fail_flush in [false, true] {
+        let mut encoder = Encoder::new(FailingOutput::default(), EncoderConfig::default()).unwrap();
+        assert!(encoder.writer().bytes.starts_with(b"OggS"));
+        assert!(encoder.writer().writes > 1);
+        encoder.write(&[]).unwrap();
+        encoder.write(&[0.25; 480]).unwrap();
+        encoder.writer().fail_flush.set(fail_flush);
+        encoder.writer().fail_write.set(!fail_flush);
+        assert!(matches!(
+            encoder.finish(),
+            Err(Error::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
+        ));
+        assert_eq!(encoder.writer().flushes, usize::from(fail_flush));
+        let calls = (encoder.writer().writes, encoder.writer().flushes);
+        assert!(matches!(encoder.write(&[0.5]), Err(Error::Invalid(_))));
+        encoder.finish().unwrap();
+        assert_eq!((encoder.writer().writes, encoder.writer().flushes), calls);
     }
 }
 
